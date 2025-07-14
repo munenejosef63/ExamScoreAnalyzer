@@ -116,13 +116,14 @@ class DataProcessor:
         # Remove completely empty rows and columns
         df = df.dropna(how='all').dropna(axis=1, how='all')
         
-        # Convert numeric columns
+        # Convert numeric columns more carefully
         for col in df.columns:
             if df[col].dtype == 'object':
                 # Try to convert to numeric
                 numeric_col = pd.to_numeric(df[col], errors='coerce')
                 if not numeric_col.isna().all():
-                    df[col] = numeric_col
+                    # Ensure proper float conversion to avoid Arrow issues
+                    df[col] = numeric_col.astype('float64')
         
         return df
     

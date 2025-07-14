@@ -70,6 +70,26 @@ Preferred communication style: Simple, everyday language.
   - Professional HTML templates with styling
 - **Dependencies**: SendGrid Python SDK (optional, graceful degradation)
 
+### 6. Ranking System (utils/ranking_system.py)
+- **Purpose**: Student ranking and performance comparison functionality
+- **Features**:
+  - Individual student rankings with tie handling
+  - Subject-wise performance analysis
+  - Overall rankings based on total marks
+  - Class performance summaries
+  - Grade distribution calculations
+- **Dependencies**: NumPy for statistical calculations
+
+### 7. PDF Generator (utils/pdf_generator.py)
+- **Purpose**: Professional PDF report generation with comprehensive analysis
+- **Features**:
+  - Detailed analysis reports with statistics and rankings
+  - Professional table layouts and styling
+  - Student rankings and grade distribution tables
+  - Subject-wise analysis sections
+  - Customizable report templates
+- **Dependencies**: ReportLab for PDF generation
+
 ## Data Flow
 
 1. **Student Information Capture**: Users enter class details, student names, and exam information in sidebar
@@ -97,6 +117,11 @@ Preferred communication style: Simple, everyday language.
 - **SendGrid**: Professional email delivery service (optional)
 - **SENDGRID_API_KEY**: Environment variable for API authentication
 - **Graceful Degradation**: Email functionality works without SendGrid for content generation and preview
+
+### PDF Generation
+- **ReportLab**: Professional PDF document generation library
+- **Custom styling**: Professional report templates with tables and charts
+- **Comprehensive reports**: Statistics, rankings, and analysis in PDF format
 
 ### Statistical Computing
 - **SciPy.stats**: Advanced statistical functions (skewness, kurtosis)

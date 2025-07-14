@@ -12,6 +12,8 @@ from utils.data_processor import DataProcessor
 from utils.analyzer import ExamAnalyzer
 from utils.visualizer import ExamVisualizer
 from utils.email_handler import EmailHandler
+from utils.ranking_system import RankingSystem
+from utils.pdf_generator import PDFGenerator
 
 def main():
     st.set_page_config(
@@ -163,6 +165,19 @@ def handle_student_info():
                 if name:
                     student_names.append(name)
     
+    # Subject Information
+    st.subheader("📚 Subject Details")
+    enable_subjects = st.checkbox("Enable multi-subject analysis")
+    subjects_data = {}
+    
+    if enable_subjects:
+        num_subjects = st.number_input("Number of subjects:", min_value=1, max_value=10, value=1)
+        
+        for i in range(num_subjects):
+            subject_name = st.text_input(f"Subject {i+1} name:", key=f"subject_{i}", placeholder=f"e.g., Mathematics")
+            if subject_name:
+                subjects_data[subject_name] = []
+    
     # Save to session state
     student_info = {
         'class_name': class_name,
@@ -172,6 +187,7 @@ def handle_student_info():
         'exam_date': exam_date,
         'teacher_name': teacher_name,
         'student_names': student_names,
+        'subjects_data': subjects_data,
         'timestamp': datetime.now()
     }
     
@@ -520,28 +536,48 @@ def display_results():
     fig_grades = visualizer.create_grade_distribution(grades)
     st.plotly_chart(fig_grades, use_container_width=True)
     
-    # Detailed Statistics Table
-    st.subheader("📋 Detailed Statistics")
+    # Student Rankings
+    st.subheader("🏆 Student Rankings")
     
-    percentiles = [10, 25, 50, 75, 90, 95, 99]
-    percentile_values = [np.percentile(marks, p) for p in percentiles]
+    ranking_system = RankingSystem()
+    student_info = st.session_state.student_info
+    student_names = student_info.get('student_names', []) if student_info else []
     
-    stats_df = pd.DataFrame({
-        'Statistic': ['Count', 'Mean', 'Median', 'Mode', 'Standard Deviation', 'Variance', 'Minimum', 'Maximum', 'Range'] + [f'{p}th Percentile' for p in percentiles],
-        'Value': [
-            results['count'],
-            f"{results['mean']:.2f}",
-            f"{results['median']:.2f}",
-            f"{results['mode']:.2f}" if results['mode'] is not None else "No mode",
-            f"{results['std_dev']:.2f}",
-            f"{results['variance']:.2f}",
-            f"{results['min']:.2f}",
-            f"{results['max']:.2f}",
-            f"{results['range']:.2f}"
-        ] + [f"{val:.2f}" for val in percentile_values]
-    })
+    # Calculate rankings
+    rankings = ranking_system.calculate_rankings(marks, student_names, max_marks)
     
-    st.dataframe(stats_df, use_container_width=True)
+    if rankings:
+        # Create rankings dataframe
+        rankings_df = pd.DataFrame(rankings)
+        
+        # Display top performers
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 🥇 Top 5 Performers")
+            top_5 = rankings_df.head(5)
+            for _, row in top_5.iterrows():
+                st.markdown(f"**{row['rank']}.** {row['student_name']} - {row['score']:.1f} ({row['grade']})")
+        
+        with col2:
+            st.markdown("### 📊 Class Performance")
+            class_summary = ranking_system.get_class_performance_summary(rankings)
+            st.metric("Class Average", f"{class_summary['class_average']:.1f}")
+            st.metric("Top Score", f"{class_summary['highest_score']:.1f}")
+            st.metric("Total Students", class_summary['total_students'])
+        
+        # Full rankings table
+        st.markdown("### 📋 Complete Rankings")
+        display_df = rankings_df[['rank', 'student_name', 'score', 'grade', 'percentage']].copy()
+        display_df.columns = ['Rank', 'Student Name', 'Score', 'Grade', 'Percentage']
+        display_df['Percentage'] = display_df['Percentage'].apply(lambda x: f"{x:.1f}%")
+        
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Store rankings in session state
+        st.session_state.rankings = rankings
+    else:
+        st.warning("No rankings available. Please ensure student data is properly entered.")
     
     # Export and Share functionality
     st.subheader("💾 Export & Share Results")
@@ -551,34 +587,65 @@ def display_results():
         handle_email_sharing(results, marks, pass_threshold, max_marks, grades)
     
     st.subheader("📥 Download Options")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
+    
+    # Prepare data for exports
+    rankings = getattr(st.session_state, 'rankings', [])
+    subject_totals = {}  # This would be populated if multi-subject analysis is implemented
     
     with col1:
-        # Export statistics as JSON
-        export_data = {
-            'statistics': results,
-            'marks': marks,
-            'pass_threshold': pass_threshold,
-            'pass_rate': pass_rate,
-            'grades': grades
-        }
-        
-        json_str = json.dumps(export_data, indent=2)
-        st.download_button(
-            label="📄 Download JSON",
-            data=json_str,
-            file_name="exam_analysis.json",
-            mime="application/json"
-        )
+        # Export as PDF
+        if st.button("📄 Generate PDF Report", type="primary"):
+            pdf_generator = PDFGenerator()
+            pdf_content = pdf_generator.generate_analysis_report(
+                results=results,
+                marks=marks,
+                student_info=student_info,
+                rankings=rankings,
+                subject_totals=subject_totals,
+                pass_threshold=pass_threshold,
+                max_marks=max_marks
+            )
+            
+            st.download_button(
+                label="📄 Download PDF",
+                data=pdf_content,
+                file_name=f"exam_analysis_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                mime="application/pdf"
+            )
     
     with col2:
+        # Export rankings as CSV
+        if rankings:
+            rankings_df = pd.DataFrame(rankings)
+            rankings_csv = rankings_df.to_csv(index=False)
+            st.download_button(
+                label="🏆 Download Rankings",
+                data=rankings_csv,
+                file_name="student_rankings.csv",
+                mime="text/csv"
+            )
+        else:
+            st.button("🏆 Rankings (N/A)", disabled=True)
+    
+    with col3:
         # Export as CSV
-        export_df = pd.DataFrame({
-            'Student_ID': range(1, len(marks) + 1),
-            'Marks': marks,
-            'Grade': [visualizer.get_letter_grade(mark, max_marks) for mark in marks],
-            'Status': ['Pass' if mark >= pass_mark else 'Fail' for mark in marks]
-        })
+        if rankings:
+            export_df = pd.DataFrame({
+                'Rank': [r['rank'] for r in rankings],
+                'Student_Name': [r['student_name'] for r in rankings],
+                'Marks': [r['score'] for r in rankings],
+                'Grade': [r['grade'] for r in rankings],
+                'Percentage': [f"{r['percentage']:.1f}%" for r in rankings],
+                'Status': ['Pass' if r['score'] >= pass_mark else 'Fail' for r in rankings]
+            })
+        else:
+            export_df = pd.DataFrame({
+                'Student_ID': range(1, len(marks) + 1),
+                'Marks': marks,
+                'Grade': [visualizer.get_letter_grade(mark, max_marks) for mark in marks],
+                'Status': ['Pass' if mark >= pass_mark else 'Fail' for mark in marks]
+            })
         
         csv = export_df.to_csv(index=False)
         st.download_button(
@@ -588,14 +655,25 @@ def display_results():
             mime="text/csv"
         )
     
-    with col3:
-        # Export statistics table
-        stats_csv = stats_df.to_csv(index=False)
+    with col4:
+        # Export statistics as JSON
+        export_data = {
+            'statistics': results,
+            'marks': marks,
+            'rankings': rankings,
+            'pass_threshold': pass_threshold,
+            'pass_rate': pass_rate,
+            'grades': grades,
+            'student_info': student_info,
+            'export_timestamp': datetime.now().isoformat()
+        }
+        
+        json_str = json.dumps(export_data, indent=2, default=str)
         st.download_button(
-            label="📈 Download Statistics",
-            data=stats_csv,
-            file_name="exam_statistics.csv",
-            mime="text/csv"
+            label="📄 Download JSON",
+            data=json_str,
+            file_name="exam_analysis.json",
+            mime="application/json"
         )
 
 def handle_email_sharing(results, marks, pass_threshold, max_marks, grades):
@@ -625,10 +703,11 @@ def handle_email_sharing(results, marks, pass_threshold, max_marks, grades):
     st.subheader("📝 Email Content Preview")
     
     student_info = st.session_state.student_info
+    rankings = getattr(st.session_state, 'rankings', [])
     custom_message = st.text_area("Add Personal Message (optional):", placeholder="Additional notes or comments...")
     
     if email_format == "Plain Text":
-        email_content = generate_email_content(results, marks, pass_threshold, max_marks, grades, student_info, custom_message)
+        email_content = generate_email_content(results, marks, pass_threshold, max_marks, grades, student_info, custom_message, rankings)
         st.text_area("Email Content:", value=email_content, height=300, disabled=True)
     else:
         html_content = email_handler.generate_html_content(results, marks, pass_threshold, max_marks, grades, student_info, custom_message)
@@ -680,7 +759,7 @@ def handle_email_sharing(results, marks, pass_threshold, max_marks, grades):
                 mime="text/html" if email_format == "HTML" else "text/plain"
             )
 
-def generate_email_content(results, marks, pass_threshold, max_marks, grades, student_info, custom_message=""):
+def generate_email_content(results, marks, pass_threshold, max_marks, grades, student_info, custom_message="", rankings=[]):
     """Generate formatted email content"""
     content = []
     
@@ -738,6 +817,14 @@ def generate_email_content(results, marks, pass_threshold, max_marks, grades, st
             percentage = (count / len(marks)) * 100
             content.append(f"• {grade}: {count} students ({percentage:.1f}%)")
     content.append("")
+    
+    # Student Rankings (top 10)
+    if rankings:
+        content.append("🏆 Top 10 Student Rankings:")
+        top_10 = rankings[:10]
+        for rank_info in top_10:
+            content.append(f"• {rank_info['rank']}. {rank_info['student_name']}: {rank_info['score']:.1f} ({rank_info['grade']})")
+        content.append("")
     
     # Quartile analysis
     content.append("📈 Performance Quartiles:")
