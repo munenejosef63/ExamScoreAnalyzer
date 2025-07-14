@@ -6,41 +6,116 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import io
 import json
+import base64
+from datetime import datetime
 from utils.data_processor import DataProcessor
 from utils.analyzer import ExamAnalyzer
 from utils.visualizer import ExamVisualizer
+from utils.email_handler import EmailHandler
 
 def main():
     st.set_page_config(
         page_title="Exam Analysis Tool",
         page_icon="📊",
-        layout="wide"
+        layout="wide",
+        initial_sidebar_state="expanded"
     )
     
-    st.title("📊 Exam Analysis Tool")
-    st.markdown("---")
+    # Custom CSS for better styling
+    st.markdown("""
+    <style>
+        .main-header {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .metric-card {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            margin: 0.5rem 0;
+        }
+        .info-box {
+            background: #e3f2fd;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+            margin: 1rem 0;
+        }
+        .success-box {
+            background: #e8f5e8;
+            padding: 1rem;
+            border-radius: 8px;
+            border-left: 4px solid #4caf50;
+            margin: 1rem 0;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Header
+    st.markdown("""
+    <div class="main-header">
+        <h1>📊 Exam Analysis Tool</h1>
+        <p>Comprehensive statistical analysis for exam results with student information management</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Initialize session state
     if 'analysis_data' not in st.session_state:
         st.session_state.analysis_data = None
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = None
+    if 'student_info' not in st.session_state:
+        st.session_state.student_info = None
     
-    # Data input section
-    st.header("📥 Data Input")
+    # Sidebar for student information
+    with st.sidebar:
+        st.header("👨‍🎓 Student Information")
+        student_info = handle_student_info()
     
-    input_method = st.radio(
-        "Choose your input method:",
-        ["Upload Document", "Manual Entry"],
-        horizontal=True
-    )
+    # Main content area
+    col1, col2 = st.columns([2, 1])
     
-    data_processor = DataProcessor()
+    with col1:
+        # Data input section
+        st.header("📥 Data Input")
+        
+        input_method = st.radio(
+            "Choose your input method:",
+            ["Upload Document", "Manual Entry"],
+            horizontal=True
+        )
+        
+        data_processor = DataProcessor()
+        
+        if input_method == "Upload Document":
+            handle_file_upload(data_processor)
+        else:
+            handle_manual_entry()
     
-    if input_method == "Upload Document":
-        handle_file_upload(data_processor)
-    else:
-        handle_manual_entry()
+    with col2:
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        st.markdown("### 📋 Quick Guide")
+        st.markdown("""
+        **Upload Document:**
+        - Support CSV, Excel, PDF files
+        - Automatic mark extraction
+        
+        **Manual Entry:**
+        - Individual input for each student
+        - Bulk text input option
+        
+        **Features:**
+        - Statistical analysis
+        - Visual charts
+        - Export results
+        - Email sharing
+        """)
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Analysis section
     if st.session_state.analysis_data is not None:
@@ -51,6 +126,74 @@ def main():
         if st.session_state.analysis_results is not None:
             st.markdown("---")
             display_results()
+
+def handle_student_info():
+    """Handle student information input in sidebar"""
+    st.markdown("Enter details for class or individual students:")
+    
+    # Class information
+    st.subheader("📚 Class Details")
+    class_name = st.text_input("Class/Subject Name:", placeholder="e.g., Mathematics 101")
+    grade = st.selectbox("Grade/Year:", ["Select Grade", "Grade 9", "Grade 10", "Grade 11", "Grade 12", "Year 1", "Year 2", "Year 3", "Year 4", "Other"])
+    stream = st.selectbox("Stream/Section:", ["Select Stream", "Science", "Commerce", "Arts", "A", "B", "C", "D", "Other"])
+    
+    if stream == "Other":
+        stream = st.text_input("Enter Stream/Section:", placeholder="Enter custom stream")
+    
+    # Exam details
+    st.subheader("📝 Exam Information")
+    exam_name = st.text_input("Exam Name:", placeholder="e.g., Mid-term Exam")
+    exam_date = st.date_input("Exam Date:")
+    teacher_name = st.text_input("Teacher Name:", placeholder="Your name")
+    
+    # Individual student names (optional)
+    st.subheader("👥 Student Names (Optional)")
+    enable_names = st.checkbox("Add individual student names")
+    student_names = []
+    
+    if enable_names:
+        num_students = st.number_input("Number of students:", min_value=1, max_value=50, value=5)
+        
+        if st.button("📝 Enter Student Names"):
+            st.session_state.show_name_inputs = True
+        
+        if hasattr(st.session_state, 'show_name_inputs') and st.session_state.show_name_inputs:
+            for i in range(num_students):
+                name = st.text_input(f"Student {i+1}:", key=f"student_name_{i}", placeholder=f"Student {i+1} name")
+                if name:
+                    student_names.append(name)
+    
+    # Save to session state
+    student_info = {
+        'class_name': class_name,
+        'grade': grade if grade != "Select Grade" else "",
+        'stream': stream if stream != "Select Stream" else "",
+        'exam_name': exam_name,
+        'exam_date': exam_date,
+        'teacher_name': teacher_name,
+        'student_names': student_names,
+        'timestamp': datetime.now()
+    }
+    
+    st.session_state.student_info = student_info
+    
+    # Display summary
+    if any([class_name, grade != "Select Grade", stream != "Select Stream", exam_name]):
+        st.markdown('<div class="success-box">', unsafe_allow_html=True)
+        st.markdown("### ✅ Information Summary")
+        if class_name:
+            st.write(f"**Class:** {class_name}")
+        if grade != "Select Grade":
+            st.write(f"**Grade:** {grade}")
+        if stream != "Select Stream":
+            st.write(f"**Stream:** {stream}")
+        if exam_name:
+            st.write(f"**Exam:** {exam_name}")
+        if teacher_name:
+            st.write(f"**Teacher:** {teacher_name}")
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    return student_info
 
 def handle_file_upload(data_processor):
     st.subheader("📁 Upload Exam Results")
@@ -131,13 +274,42 @@ def handle_manual_entry():
     
     if entry_method == "Individual Input":
         marks = []
-        cols = st.columns(min(5, num_students))
+        student_info = st.session_state.student_info
+        student_names = student_info.get('student_names', []) if student_info else []
         
-        for i in range(num_students):
-            col_idx = i % 5
-            with cols[col_idx]:
+        # Create a more organized layout for individual input
+        if num_students <= 10:
+            cols = st.columns(min(2, num_students))
+            for i in range(num_students):
+                col_idx = i % 2
+                with cols[col_idx]:
+                    # Use student name if available, otherwise use generic label
+                    if i < len(student_names) and student_names[i]:
+                        label = f"{student_names[i]}:"
+                    else:
+                        label = f"Student {i+1}:"
+                    
+                    mark = st.number_input(
+                        label,
+                        min_value=0.0,
+                        max_value=float(max_marks),
+                        value=0.0,
+                        step=0.5,
+                        key=f"mark_{i}",
+                        help=f"Enter marks for student (0-{max_marks})"
+                    )
+                    marks.append(mark)
+        else:
+            # For larger classes, use a more compact layout
+            st.info("💡 For large classes, consider using the 'Bulk Text Input' method for faster entry.")
+            for i in range(num_students):
+                if i < len(student_names) and student_names[i]:
+                    label = f"{student_names[i]}:"
+                else:
+                    label = f"Student {i+1}:"
+                
                 mark = st.number_input(
-                    f"Student {i+1}:",
+                    label,
                     min_value=0.0,
                     max_value=float(max_marks),
                     value=0.0,
@@ -196,6 +368,28 @@ def perform_analysis():
 def display_results():
     st.header("📈 Analysis Results")
     results = st.session_state.analysis_results
+    student_info = st.session_state.student_info
+    
+    # Display class information if available
+    if student_info and any([student_info.get('class_name'), student_info.get('grade'), student_info.get('stream')]):
+        st.markdown('<div class="info-box">', unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if student_info.get('class_name'):
+                st.write(f"**Class:** {student_info['class_name']}")
+            if student_info.get('grade'):
+                st.write(f"**Grade:** {student_info['grade']}")
+        with col2:
+            if student_info.get('stream'):
+                st.write(f"**Stream:** {student_info['stream']}")
+            if student_info.get('exam_name'):
+                st.write(f"**Exam:** {student_info['exam_name']}")
+        with col3:
+            if student_info.get('teacher_name'):
+                st.write(f"**Teacher:** {student_info['teacher_name']}")
+            if student_info.get('exam_date'):
+                st.write(f"**Date:** {student_info['exam_date']}")
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Summary statistics
     st.subheader("📊 Summary Statistics")
@@ -349,9 +543,14 @@ def display_results():
     
     st.dataframe(stats_df, use_container_width=True)
     
-    # Export functionality
-    st.subheader("💾 Export Results")
+    # Export and Share functionality
+    st.subheader("💾 Export & Share Results")
     
+    # Email sharing section
+    with st.expander("📧 Share via Email", expanded=False):
+        handle_email_sharing(results, marks, pass_threshold, max_marks, grades)
+    
+    st.subheader("📥 Download Options")
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -398,6 +597,164 @@ def display_results():
             file_name="exam_statistics.csv",
             mime="text/csv"
         )
+
+def handle_email_sharing(results, marks, pass_threshold, max_marks, grades):
+    """Handle email sharing functionality"""
+    st.markdown("Send analysis results via email to students, parents, or administrators.")
+    
+    email_handler = EmailHandler()
+    
+    # Check if SendGrid is configured
+    if not email_handler.is_configured():
+        st.warning("⚠️ Email functionality requires SendGrid API key. Please configure SENDGRID_API_KEY environment variable to enable sending.")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        recipient_email = st.text_input("Recipient Email:", placeholder="recipient@example.com")
+        email_subject = st.text_input("Subject:", value="Exam Analysis Results")
+    
+    with col2:
+        sender_email = st.text_input("Your Email:", placeholder="teacher@school.com")
+        cc_emails = st.text_input("CC (optional):", placeholder="admin@school.com, parent@email.com")
+    
+    # Email format selection
+    email_format = st.radio("Email Format:", ["Plain Text", "HTML"], horizontal=True)
+    
+    # Email content preview
+    st.subheader("📝 Email Content Preview")
+    
+    student_info = st.session_state.student_info
+    custom_message = st.text_area("Add Personal Message (optional):", placeholder="Additional notes or comments...")
+    
+    if email_format == "Plain Text":
+        email_content = generate_email_content(results, marks, pass_threshold, max_marks, grades, student_info, custom_message)
+        st.text_area("Email Content:", value=email_content, height=300, disabled=True)
+    else:
+        html_content = email_handler.generate_html_content(results, marks, pass_threshold, max_marks, grades, student_info, custom_message)
+        st.markdown("**HTML Preview:**")
+        st.components.v1.html(html_content, height=400, scrolling=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("📧 Send Email", type="primary"):
+            if recipient_email and sender_email:
+                if email_handler.is_configured():
+                    with st.spinner("Sending email..."):
+                        if email_format == "HTML":
+                            content = html_content
+                        else:
+                            content = email_content
+                        
+                        success, message = email_handler.send_analysis_email(
+                            to_email=recipient_email,
+                            from_email=sender_email,
+                            subject=email_subject,
+                            content=content,
+                            cc_emails=cc_emails if cc_emails else None
+                        )
+                        
+                        if success:
+                            st.success(f"✅ {message}")
+                        else:
+                            st.error(f"❌ {message}")
+                else:
+                    st.error("❌ SendGrid API key not configured. Please set SENDGRID_API_KEY environment variable.")
+            else:
+                st.error("❌ Please fill in both recipient and sender email addresses.")
+    
+    with col2:
+        if st.button("📋 Copy Content"):
+            content_to_copy = html_content if email_format == "HTML" else email_content
+            st.info("📋 Copy the email content above to send manually through your email client.")
+    
+    with col3:
+        if st.button("💾 Download Content"):
+            content_to_download = html_content if email_format == "HTML" else email_content
+            file_extension = "html" if email_format == "HTML" else "txt"
+            st.download_button(
+                label=f"📄 Download {email_format}",
+                data=content_to_download,
+                file_name=f"exam_analysis_email.{file_extension}",
+                mime="text/html" if email_format == "HTML" else "text/plain"
+            )
+
+def generate_email_content(results, marks, pass_threshold, max_marks, grades, student_info, custom_message=""):
+    """Generate formatted email content"""
+    content = []
+    
+    # Header
+    if student_info:
+        if student_info.get('exam_name'):
+            content.append(f"Subject: {student_info['exam_name']} - Analysis Results")
+        if student_info.get('class_name'):
+            content.append(f"Class: {student_info['class_name']}")
+        if student_info.get('grade') and student_info.get('stream'):
+            content.append(f"Grade: {student_info['grade']} | Stream: {student_info['stream']}")
+        if student_info.get('teacher_name'):
+            content.append(f"Teacher: {student_info['teacher_name']}")
+        content.append("")
+    
+    # Add custom message if provided
+    if custom_message:
+        content.append("PERSONAL MESSAGE:")
+        content.append("-" * 30)
+        content.append(custom_message)
+        content.append("")
+    
+    # Analysis summary
+    content.append("EXAM ANALYSIS SUMMARY")
+    content.append("=" * 50)
+    content.append("")
+    
+    # Key statistics
+    content.append("📊 Key Statistics:")
+    content.append(f"• Total Students: {results['count']}")
+    content.append(f"• Average Score: {results['mean']:.2f}")
+    content.append(f"• Median Score: {results['median']:.2f}")
+    content.append(f"• Highest Score: {results['max']:.2f}")
+    content.append(f"• Lowest Score: {results['min']:.2f}")
+    content.append(f"• Standard Deviation: {results['std_dev']:.2f}")
+    content.append("")
+    
+    # Pass/Fail analysis
+    pass_mark = (pass_threshold / 100) * max_marks
+    passed = sum(1 for mark in marks if mark >= pass_mark)
+    failed = len(marks) - passed
+    pass_rate = (passed / len(marks)) * 100
+    
+    content.append("✅ Pass/Fail Analysis:")
+    content.append(f"• Pass Threshold: {pass_threshold}% ({pass_mark:.1f} marks)")
+    content.append(f"• Students Passed: {passed}")
+    content.append(f"• Students Failed: {failed}")
+    content.append(f"• Pass Rate: {pass_rate:.1f}%")
+    content.append("")
+    
+    # Grade distribution
+    content.append("📊 Grade Distribution:")
+    for grade, count in grades.items():
+        if count > 0:
+            percentage = (count / len(marks)) * 100
+            content.append(f"• {grade}: {count} students ({percentage:.1f}%)")
+    content.append("")
+    
+    # Quartile analysis
+    content.append("📈 Performance Quartiles:")
+    content.append(f"• 25th Percentile (Q1): {results['q1']:.2f}")
+    content.append(f"• 50th Percentile (Q2/Median): {results['median']:.2f}")
+    content.append(f"• 75th Percentile (Q3): {results['q3']:.2f}")
+    content.append("")
+    
+    # Additional insights
+    if results.get('outlier_count', 0) > 0:
+        content.append(f"⚠️ Outliers Detected: {results['outlier_count']} students")
+        content.append("")
+    
+    content.append("📋 This analysis was generated using the Exam Analysis Tool.")
+    content.append(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    return "\n".join(content)
 
 if __name__ == "__main__":
     main()

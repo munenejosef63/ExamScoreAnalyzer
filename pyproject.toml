@@ -10,5 +10,6 @@ dependencies = [
     "plotly>=6.2.0",
     "pypdf2>=3.0.1",
     "scipy>=1.16.0",
+    "sendgrid>=6.12.4",
     "streamlit>=1.46.1",
 ]

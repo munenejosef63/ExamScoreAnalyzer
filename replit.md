@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a Streamlit-based web application for analyzing exam marks and scores. The tool provides comprehensive statistical analysis and visualizations to help educators and administrators understand exam performance patterns. Users can upload data in various formats (CSV, Excel, PDF) or manually enter exam marks for analysis.
+This is a Streamlit-based web application for analyzing exam marks and scores with enhanced student information management and email sharing capabilities. The tool provides comprehensive statistical analysis and visualizations to help educators and administrators understand exam performance patterns. Users can upload data in various formats (CSV, Excel, PDF) or manually enter exam marks for analysis. The application now features an appealing user interface with gradient styling, student information capture, and professional email sharing functionality.
 
 ## User Preferences
 
@@ -24,12 +24,18 @@ Preferred communication style: Simple, everyday language.
 ## Key Components
 
 ### 1. Main Application (app.py)
-- **Purpose**: Entry point and UI orchestration
+- **Purpose**: Entry point and UI orchestration with enhanced styling and user experience
 - **Responsibilities**: 
-  - UI layout and user interaction handling
-  - Session state management
+  - Modern UI layout with gradient headers and styled components
+  - Session state management for analysis data and student information
   - Coordination between utility modules
-- **Features**: File upload interface, manual entry forms, analysis triggers
+  - Student information management in sidebar
+- **Features**: 
+  - File upload interface with preview and column selection
+  - Manual entry forms with individual and bulk input options
+  - Student information capture (names, grade, stream, class details)
+  - Enhanced visual styling with custom CSS
+  - Responsive layout with information panels
 
 ### 2. Data Processor (utils/data_processor.py)
 - **Purpose**: Handle multiple file formats and data extraction
@@ -51,16 +57,28 @@ Preferred communication style: Simple, everyday language.
 ### 4. Visualization Engine (utils/visualizer.py)
 - **Purpose**: Generate interactive charts and graphs
 - **Technology**: Plotly for interactive visualizations
-- **Chart Types**: Histograms, distribution plots, statistical summaries
-- **Features**: Customizable color schemes, pass mark indicators
+- **Chart Types**: Histograms, distribution plots, statistical summaries, grade distribution pie charts
+- **Features**: Customizable color schemes, pass mark indicators, performance comparison charts
+
+### 5. Email Handler (utils/email_handler.py)
+- **Purpose**: Professional email sharing functionality with SendGrid integration
+- **Features**:
+  - Plain text and HTML formatted emails
+  - SendGrid API integration for reliable delivery
+  - Comprehensive analysis reports in email format
+  - Support for CC recipients and custom messages
+  - Professional HTML templates with styling
+- **Dependencies**: SendGrid Python SDK (optional, graceful degradation)
 
 ## Data Flow
 
-1. **Data Input**: Users upload files or manually enter marks
-2. **Data Processing**: Raw data is cleaned, validated, and standardized
-3. **Statistical Analysis**: Comprehensive statistical calculations performed
-4. **Visualization Generation**: Interactive charts and graphs created
-5. **Results Display**: Analysis results and visualizations presented to user
+1. **Student Information Capture**: Users enter class details, student names, and exam information in sidebar
+2. **Data Input**: Users upload files or manually enter marks with enhanced individual/bulk entry options
+3. **Data Processing**: Raw data is cleaned, validated, and standardized with student name integration
+4. **Statistical Analysis**: Comprehensive statistical calculations performed with context from student information
+5. **Visualization Generation**: Interactive charts and graphs created with enhanced styling
+6. **Results Display**: Analysis results and visualizations presented with class information context
+7. **Export & Sharing**: Multiple export options including professional email sharing with HTML/text formats
 
 ## External Dependencies
 
@@ -74,6 +92,11 @@ Preferred communication style: Simple, everyday language.
 ### File Processing
 - **PyPDF2**: PDF text extraction and processing
 - **Built-in CSV/Excel**: Pandas handles CSV and Excel file formats
+
+### Email Integration
+- **SendGrid**: Professional email delivery service (optional)
+- **SENDGRID_API_KEY**: Environment variable for API authentication
+- **Graceful Degradation**: Email functionality works without SendGrid for content generation and preview
 
 ### Statistical Computing
 - **SciPy.stats**: Advanced statistical functions (skewness, kurtosis)
