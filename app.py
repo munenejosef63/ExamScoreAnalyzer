@@ -15,6 +15,10 @@ from utils.email_handler import EmailHandler
 from utils.ranking_system import RankingSystem
 from utils.pdf_generator import PDFGenerator
 from utils.historical_analyzer import HistoricalAnalyzer
+from utils.user_manager import UserManager, display_user_authentication, display_session_management
+from utils.database_manager import DatabaseManager
+from utils.export_manager import ExportManager, display_export_interface
+from utils.admin_dashboard import display_admin_interface
 
 def main():
     st.set_page_config(
@@ -75,10 +79,21 @@ def main():
     if 'student_info' not in st.session_state:
         st.session_state.student_info = None
     
-    # Sidebar for student information
+    # Multi-user authentication
+    if not display_user_authentication():
+        return  # Stop here if user is not authenticated
+    
+    # Sidebar for user and session management
     with st.sidebar:
+        user_manager = display_session_management()
+        
+        # Admin interface
+        if display_admin_interface():
+            return  # Admin dashboard is displayed, exit main app
+        
+        st.markdown("---")
         st.header("👨‍🎓 Student Information")
-        student_info = handle_student_info()
+        student_info = handle_student_info(user_manager)
     
     # Main content area
     col1, col2 = st.columns([2, 1])
@@ -136,8 +151,8 @@ def main():
             # Multi-sheet results are handled within display_advanced_analytics
             pass
 
-def handle_student_info():
-    """Handle student information input in sidebar"""
+def handle_student_info(user_manager=None):
+    """Handle student information input in sidebar with database integration"""
     st.markdown("Enter details for class or individual students:")
     
     # Class information
@@ -199,6 +214,15 @@ def handle_student_info():
     }
     
     st.session_state.student_info = student_info
+    
+    # Create new exam session if needed and user manager is available
+    if user_manager and exam_name and class_name and not st.session_state.current_session_id:
+        session_name = f"{class_name}_{exam_name}_{datetime.now().strftime('%Y%m%d')}"
+        session_id, message = user_manager.create_exam_session(session_name, student_info)
+        if session_id:
+            st.success(f"New exam session created: {session_name}")
+        else:
+            st.warning(f"Session creation failed: {message}")
     
     # Display summary
     if any([class_name, grade != "Select Grade", stream != "Select Stream", exam_name]):
@@ -467,6 +491,23 @@ def perform_multi_sheet_analysis():
         # Store exam data for historical comparison
         exam_name = st.session_state.student_info.get('exam_name', f'Exam_{datetime.now().strftime("%Y%m%d")}')
         historical_analyzer.store_exam_data(exam_name, student_data)
+        
+        # Save to database if user is authenticated
+        user_manager = UserManager()
+        if user_manager.is_authenticated() and st.session_state.current_session_id:
+            # Save student data
+            success, message = user_manager.save_current_session_data(student_data)
+            if success:
+                st.info("💾 Data automatically saved to your account")
+            
+            # Save analysis results
+            analysis_data = {
+                'rankings': rankings,
+                'subject_leaders': subject_leaders,
+                'top_students': top_students,
+                'timestamp': datetime.now().isoformat()
+            }
+            user_manager.save_analysis_results('comprehensive_analysis', analysis_data)
     
     st.success("✅ Multi-sheet analysis completed!")
     
@@ -1013,6 +1054,16 @@ def display_results():
             file_name="exam_analysis.json",
             mime="application/json"
         )
+    
+    # Enhanced export interface
+    st.markdown("---")
+    display_export_interface(
+        student_data=getattr(st.session_state, 'multi_sheet_data', None),
+        rankings_data=getattr(st.session_state, 'rankings', None),
+        analysis_results=results,
+        student_info=student_info,
+        historical_data=getattr(st.session_state, 'historical_data', None)
+    )
 
 def handle_email_sharing(results, marks, pass_threshold, max_marks, grades):
     """Handle email sharing functionality"""
