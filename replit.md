@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a Streamlit-based web application for analyzing exam marks and scores with enhanced student information management and email sharing capabilities. The tool provides comprehensive statistical analysis and visualizations to help educators and administrators understand exam performance patterns. Users can upload data in various formats (CSV, Excel, PDF) or manually enter exam marks for analysis. The application now features an appealing user interface with gradient styling, student information capture, and professional email sharing functionality.
+This is a comprehensive Streamlit-based web application for analyzing exam marks and scores with advanced multi-sheet processing, student name consolidation, historical comparisons, and sophisticated analytics. The tool provides statistical analysis, visualizations, student rankings, subject-wise comparisons, and historical progress tracking to help educators and administrators understand exam performance patterns comprehensively. Users can upload multi-sheet Excel files with automatic student name matching, track progress over time, and generate detailed analytics reports. The application features an appealing user interface with gradient styling, advanced analytics dashboard, and professional reporting capabilities.
 
 ## User Preferences
 
@@ -90,15 +90,45 @@ Preferred communication style: Simple, everyday language.
   - Customizable report templates
 - **Dependencies**: ReportLab for PDF generation
 
+### 8. Historical Analyzer (utils/historical_analyzer.py)
+- **Purpose**: Historical exam comparisons and student progress tracking
+- **Features**:
+  - Student progress comparison between exams
+  - Historical data storage and retrieval
+  - Improvement/decline tracking with insights
+  - Subject-wise average comparisons across time
+  - Class trend analysis and performance metrics
+  - Student ranking evolution over time
+- **Dependencies**: NumPy for statistical calculations, Streamlit session state
+
 ## Data Flow
 
 1. **Student Information Capture**: Users enter class details, student names, and exam information in sidebar
-2. **Data Input**: Users upload files or manually enter marks with enhanced individual/bulk entry options
-3. **Data Processing**: Raw data is cleaned, validated, and standardized with student name integration
-4. **Statistical Analysis**: Comprehensive statistical calculations performed with context from student information
-5. **Visualization Generation**: Interactive charts and graphs created with enhanced styling
-6. **Results Display**: Analysis results and visualizations presented with class information context
-7. **Export & Sharing**: Multiple export options including professional email sharing with HTML/text formats
+2. **Multi-Sheet Data Input**: 
+   - Single sheet: Upload CSV/Excel/PDF files or manual entry with individual/bulk options
+   - Multi-sheet: Automatic Excel sheet detection and student name consolidation across subjects
+3. **Data Processing & Consolidation**: 
+   - Raw data cleaning, validation, and standardization
+   - Intelligent student name matching (80% similarity threshold)
+   - Subject-wise score aggregation and total calculation
+4. **Comprehensive Analysis**: 
+   - Statistical calculations with multi-subject context
+   - Student ranking generation with detailed metrics
+   - Subject leader identification and top 3 overall students
+   - Historical comparison with previous exams (if available)
+5. **Advanced Analytics Dashboard**: 
+   - Interactive buttons for total rankings, subject leaders, top students
+   - Individual student query system with dropdown selection
+   - Subject averages analysis and comparison features
+   - Historical progress tracking with improvement/decline insights
+6. **Results & Visualization Display**: 
+   - Multi-modal results presentation based on data type
+   - Class information context integration
+   - Interactive analytics with drill-down capabilities
+7. **Export & Sharing**: 
+   - Enhanced export options: rankings CSV, comprehensive JSON, PDF reports
+   - Professional email sharing with ranking information
+   - Historical data storage for future comparisons
 
 ## External Dependencies
 

@@ -14,6 +14,7 @@ from utils.visualizer import ExamVisualizer
 from utils.email_handler import EmailHandler
 from utils.ranking_system import RankingSystem
 from utils.pdf_generator import PDFGenerator
+from utils.historical_analyzer import HistoricalAnalyzer
 
 def main():
     st.set_page_config(
@@ -120,14 +121,20 @@ def main():
         st.markdown('</div>', unsafe_allow_html=True)
     
     # Analysis section
-    if st.session_state.analysis_data is not None:
+    data_mode = getattr(st.session_state, 'data_mode', 'single_sheet')
+    
+    if (st.session_state.analysis_data is not None or 
+        (data_mode == 'multi_sheet' and 'multi_sheet_data' in st.session_state)):
         st.markdown("---")
         perform_analysis()
         
-        # Results section
-        if st.session_state.analysis_results is not None:
+        # Results section - different handling for single vs multi-sheet
+        if data_mode == 'single_sheet' and st.session_state.analysis_results is not None:
             st.markdown("---")
             display_results()
+        elif data_mode == 'multi_sheet':
+            # Multi-sheet results are handled within display_advanced_analytics
+            pass
 
 def handle_student_info():
     """Handle student information input in sidebar"""
@@ -223,39 +230,77 @@ def handle_file_upload(data_processor):
     if uploaded_file is not None:
         try:
             with st.spinner("Processing file..."):
-                df = data_processor.process_file(uploaded_file)
-                
-            if df is not None and not df.empty:
-                st.success(f"✅ File processed successfully! Found {len(df)} records.")
-                
-                # Display preview
-                st.subheader("📋 Data Preview")
-                st.dataframe(df.head(10))
-                
-                # Column selection for marks
-                numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
-                
-                if numeric_columns:
-                    selected_column = st.selectbox(
-                        "Select the column containing marks:",
-                        numeric_columns,
-                        help="Choose the column that contains the exam marks/scores"
-                    )
+                # Check if it's an Excel file for multi-sheet processing
+                if uploaded_file.type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                                         "application/vnd.ms-excel"]:
+                    # Multi-sheet processing
+                    consolidated_data, sheet_names, raw_sheets = data_processor.process_multi_sheet_data(uploaded_file)
                     
-                    if st.button("Analyze Data", type="primary"):
-                        marks = df[selected_column].dropna()
-                        if len(marks) > 0:
-                            st.session_state.analysis_data = marks.tolist()
+                    if consolidated_data is not None:
+                        st.success("✅ Multi-sheet Excel file processed successfully!")
+                        
+                        # Store multi-sheet data
+                        st.session_state.multi_sheet_data = consolidated_data
+                        st.session_state.sheet_names = sheet_names
+                        st.session_state.raw_sheets = raw_sheets
+                        st.session_state.data_source = f"Multi-sheet file: {uploaded_file.name}"
+                        
+                        # Show consolidated data preview
+                        st.subheader("📋 Consolidated Student Data Preview")
+                        preview_df = pd.DataFrame.from_dict(consolidated_data, orient='index')
+                        st.dataframe(preview_df.head())
+                        
+                        # Show detected sheets
+                        st.write(f"**Detected Sheets:** {', '.join(sheet_names)}")
+                        
+                        if st.button("Analyze Multi-Sheet Data", type="primary"):
+                            st.session_state.data_mode = 'multi_sheet'
+                            st.session_state.analysis_data = consolidated_data
                             st.rerun()
-                        else:
-                            st.error("No valid marks found in the selected column.")
+                            
+                    else:
+                        # Fallback to single sheet processing
+                        df = data_processor.process_file(uploaded_file)
+                        if df is not None:
+                            handle_single_sheet_data(df, uploaded_file.name)
                 else:
-                    st.error("No numeric columns found in the uploaded file.")
-            else:
-                st.error("Could not process the file or file is empty.")
-                
+                    # Single file processing
+                    df = data_processor.process_file(uploaded_file)
+                    if df is not None:
+                        handle_single_sheet_data(df, uploaded_file.name)
+                        
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
+
+def handle_single_sheet_data(df, filename):
+    """Handle single sheet data processing"""
+    st.success(f"✅ File processed successfully! Found {len(df)} records.")
+    
+    # Display preview
+    st.subheader("📋 Data Preview")
+    st.dataframe(df.head(10))
+    
+    # Column selection for marks
+    numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
+    
+    if numeric_columns:
+        selected_column = st.selectbox(
+            "Select the column containing marks:",
+            numeric_columns,
+            help="Choose the column that contains the exam marks/scores"
+        )
+        
+        if st.button("Analyze Data", type="primary"):
+            marks = df[selected_column].dropna()
+            if len(marks) > 0:
+                st.session_state.analysis_data = marks.tolist()
+                st.session_state.data_mode = 'single_sheet'
+                st.session_state.data_source = f"File: {filename}"
+                st.rerun()
+            else:
+                st.error("No valid marks found in the selected column.")
+    else:
+        st.error("No numeric columns found in the uploaded file.")
 
 def handle_manual_entry():
     st.subheader("✏️ Manual Mark Entry")
@@ -370,6 +415,16 @@ def handle_manual_entry():
             st.error("Please enter at least one valid mark greater than 0.")
 
 def perform_analysis():
+    """Main analysis function with multi-sheet and historical support"""
+    data_mode = getattr(st.session_state, 'data_mode', 'single_sheet')
+    
+    if data_mode == 'multi_sheet':
+        perform_multi_sheet_analysis()
+    else:
+        perform_single_sheet_analysis()
+
+def perform_single_sheet_analysis():
+    """Analysis for single sheet data"""
     st.header("🔍 Statistical Analysis")
     
     analyzer = ExamAnalyzer()
@@ -380,6 +435,289 @@ def perform_analysis():
         st.session_state.analysis_results = results
     
     st.success("✅ Analysis completed!")
+
+def perform_multi_sheet_analysis():
+    """Comprehensive analysis for multi-sheet data"""
+    st.header("🔍 Multi-Subject Analysis")
+    
+    if 'multi_sheet_data' not in st.session_state:
+        st.error("No multi-sheet data available")
+        return
+    
+    student_data = st.session_state.multi_sheet_data
+    historical_analyzer = HistoricalAnalyzer()
+    
+    # Initialize components
+    analyzer = ExamAnalyzer()
+    ranking_system = RankingSystem()
+    
+    with st.spinner("Performing comprehensive analysis..."):
+        # Create comprehensive rankings
+        rankings = historical_analyzer.create_comprehensive_ranking(student_data)
+        st.session_state.rankings = rankings
+        
+        # Get subject leaders
+        subject_leaders = historical_analyzer.get_subject_leaders(student_data)
+        st.session_state.subject_leaders = subject_leaders
+        
+        # Get top 3 overall students
+        top_students = historical_analyzer.get_overall_top_students(student_data, top_n=3)
+        st.session_state.top_students = top_students
+        
+        # Store exam data for historical comparison
+        exam_name = st.session_state.student_info.get('exam_name', f'Exam_{datetime.now().strftime("%Y%m%d")}')
+        historical_analyzer.store_exam_data(exam_name, student_data)
+    
+    st.success("✅ Multi-sheet analysis completed!")
+    
+    # Display advanced analytics interface
+    display_advanced_analytics()
+
+def display_advanced_analytics():
+    """Display comprehensive analytics for multi-sheet data"""
+    st.header("📈 Advanced Analytics Dashboard")
+    
+    # Quick access buttons for different analyses
+    st.subheader("🎯 Quick Analytics")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("🏆 Total Rankings", use_container_width=True):
+            display_total_rankings()
+    
+    with col2:
+        if st.button("👑 Subject Leaders", use_container_width=True):
+            display_subject_leaders()
+    
+    with col3:
+        if st.button("🥇 Top 3 Students", use_container_width=True):
+            display_top_students()
+    
+    with col4:
+        if st.button("📊 Subject Averages", use_container_width=True):
+            display_subject_averages()
+    
+    # Student query dropdown
+    st.subheader("🔍 Individual Student Analysis")
+    if 'multi_sheet_data' in st.session_state:
+        student_names = list(st.session_state.multi_sheet_data.keys())
+        selected_student = st.selectbox("Select a student:", ["Choose student..."] + student_names)
+        
+        if selected_student != "Choose student...":
+            display_individual_student_analysis(selected_student)
+    
+    # Historical comparison section
+    st.subheader("📈 Historical Comparison")
+    historical_analyzer = HistoricalAnalyzer()
+    stored_exams = historical_analyzer.get_stored_exams()
+    
+    if len(stored_exams) > 1:
+        col1, col2 = st.columns(2)
+        with col1:
+            previous_exam = st.selectbox("Compare with previous exam:", 
+                                       ["Select exam..."] + [exam for exam in stored_exams if exam != st.session_state.student_info.get('exam_name')])
+        
+        with col2:
+            if st.button("📊 Generate Comparison", disabled=(previous_exam == "Select exam...")):
+                if previous_exam != "Select exam...":
+                    display_historical_comparison(previous_exam)
+    else:
+        st.info("💡 Upload more exams to enable historical comparisons")
+
+def display_total_rankings():
+    """Display comprehensive student rankings"""
+    if 'rankings' not in st.session_state:
+        st.error("No ranking data available")
+        return
+    
+    st.subheader("🏆 Complete Student Rankings")
+    rankings = st.session_state.rankings
+    
+    # Create DataFrame for display
+    ranking_df = pd.DataFrame([
+        {
+            'Rank': rank['rank'],
+            'Student Name': rank['student_name'],
+            'Total Score': f"{rank['total_score']:.1f}",
+            'Average per Subject': f"{rank['average_per_subject']:.1f}",
+            'Best Subject': f"{rank['best_subject'][0]}: {rank['best_subject'][1]:.1f}" if rank['best_subject'] else "N/A",
+            'Subjects Count': rank['subject_count']
+        } for rank in rankings
+    ])
+    
+    st.dataframe(ranking_df, use_container_width=True)
+    
+    # Download rankings as CSV
+    csv = ranking_df.to_csv(index=False)
+    st.download_button(
+        label="📄 Download Rankings CSV",
+        data=csv,
+        file_name="student_rankings.csv",
+        mime="text/csv"
+    )
+
+def display_subject_leaders():
+    """Display students leading in each subject"""
+    if 'subject_leaders' not in st.session_state:
+        st.error("No subject leaders data available")
+        return
+    
+    st.subheader("👑 Subject Leaders")
+    subject_leaders = st.session_state.subject_leaders
+    
+    for subject, leaders in subject_leaders.items():
+        st.write(f"**{subject}:**")
+        for i, (student, score) in enumerate(leaders, 1):
+            if i == 1:
+                st.write(f"🥇 {student}: {score:.1f}")
+            elif i == 2:
+                st.write(f"🥈 {student}: {score:.1f}")
+            elif i == 3:
+                st.write(f"🥉 {student}: {score:.1f}")
+        st.write("")
+
+def display_top_students():
+    """Display top 3 overall students"""
+    if 'top_students' not in st.session_state:
+        st.error("No top students data available")
+        return
+    
+    st.subheader("🥇 Top 3 Overall Students")
+    top_students = st.session_state.top_students
+    
+    for i, (student, total_score) in enumerate(top_students, 1):
+        if i == 1:
+            st.write(f"🥇 **{student}** - {total_score:.1f} points")
+        elif i == 2:
+            st.write(f"🥈 **{student}** - {total_score:.1f} points")
+        elif i == 3:
+            st.write(f"🥉 **{student}** - {total_score:.1f} points")
+
+def display_subject_averages():
+    """Display subject-wise averages"""
+    if 'multi_sheet_data' not in st.session_state:
+        st.error("No multi-sheet data available")
+        return
+    
+    st.subheader("📊 Subject-wise Averages")
+    student_data = st.session_state.multi_sheet_data
+    
+    # Calculate averages
+    subject_averages = {}
+    for student, scores in student_data.items():
+        for subject, score in scores.items():
+            if subject != 'Total':
+                if subject not in subject_averages:
+                    subject_averages[subject] = []
+                subject_averages[subject].append(score)
+    
+    avg_data = []
+    for subject, scores in subject_averages.items():
+        avg_data.append({
+            'Subject': subject,
+            'Average': np.mean(scores),
+            'Highest': max(scores),
+            'Lowest': min(scores),
+            'Students': len(scores)
+        })
+    
+    avg_df = pd.DataFrame(avg_data)
+    avg_df['Average'] = avg_df['Average'].round(2)
+    st.dataframe(avg_df, use_container_width=True)
+
+def display_individual_student_analysis(student_name):
+    """Display detailed analysis for individual student"""
+    if 'multi_sheet_data' not in st.session_state:
+        return
+    
+    student_data = st.session_state.multi_sheet_data[student_name]
+    
+    st.write(f"### 📝 Analysis for {student_name}")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Subject Scores:**")
+        for subject, score in student_data.items():
+            if subject != 'Total':
+                st.write(f"• {subject}: {score:.1f}")
+    
+    with col2:
+        st.metric("Total Score", f"{student_data.get('Total', 0):.1f}")
+        avg_per_subject = student_data.get('Total', 0) / (len(student_data) - 1) if len(student_data) > 1 else 0
+        st.metric("Average per Subject", f"{avg_per_subject:.1f}")
+    
+    # Find student's rank
+    if 'rankings' in st.session_state:
+        for rank_info in st.session_state.rankings:
+            if rank_info['student_name'] == student_name:
+                st.metric("Overall Rank", f"#{rank_info['rank']}")
+                break
+
+def display_historical_comparison(previous_exam_name):
+    """Display historical comparison between current and previous exam"""
+    if 'multi_sheet_data' not in st.session_state:
+        return
+    
+    historical_analyzer = HistoricalAnalyzer()
+    current_data = st.session_state.multi_sheet_data
+    
+    # Get progress comparison
+    progress_data = historical_analyzer.compare_student_progress(current_data, previous_exam_name)
+    
+    if progress_data:
+        st.subheader(f"📈 Progress Comparison with {previous_exam_name}")
+        
+        # Get improvement insights
+        insights = historical_analyzer.get_improvement_insights(progress_data)
+        
+        # Display insights
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if insights.get('most_improved'):
+                student, improvement = insights['most_improved']
+                st.metric("Most Improved", student, f"+{improvement:.1f}")
+        
+        with col2:
+            if insights.get('most_declined'):
+                student, decline = insights['most_declined']
+                st.metric("Needs Support", student, f"{decline:.1f}")
+        
+        with col3:
+            trend = insights.get('overall_class_trend', 'stable')
+            st.metric("Class Trend", trend.title())
+        
+        # Individual progress details
+        st.write("**Individual Progress:**")
+        progress_df = pd.DataFrame([
+            {
+                'Student': data['student_name'],
+                'Current Total': data['subjects'].get('Total', {}).get('current', 0),
+                'Previous Total': data['subjects'].get('Total', {}).get('previous', 0),
+                'Change': data.get('total_change', 0),
+                'Trend': data.get('overall_trend', 'stable').title()
+            } for data in progress_data.values()
+        ])
+        
+        st.dataframe(progress_df, use_container_width=True)
+        
+        # Subject averages comparison
+        avg_comparison = historical_analyzer.calculate_subject_averages_comparison(current_data, previous_exam_name)
+        if avg_comparison:
+            st.write("**Subject Averages Comparison:**")
+            avg_df = pd.DataFrame([
+                {
+                    'Subject': subject,
+                    'Current Avg': f"{data['current_average']:.1f}",
+                    'Previous Avg': f"{data['previous_average']:.1f}",
+                    'Change': f"{data['change']:.1f}",
+                    'Trend': data['trend'].title()
+                } for subject, data in avg_comparison.items()
+            ])
+            st.dataframe(avg_df, use_container_width=True)
+    else:
+        st.warning("No matching students found for comparison")
 
 def display_results():
     st.header("📈 Analysis Results")

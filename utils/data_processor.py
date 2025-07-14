@@ -3,6 +3,8 @@ import PyPDF2
 import io
 import re
 import streamlit as st
+from difflib import SequenceMatcher
+import numpy as np
 
 class DataProcessor:
     """Handles processing of uploaded files and extracting exam marks."""
@@ -54,11 +56,22 @@ class DataProcessor:
             raise Exception(f"Error reading CSV: {str(e)}")
     
     def _process_excel(self, uploaded_file):
-        """Process Excel file."""
+        """Process Excel file with multi-sheet support."""
         try:
-            # Read Excel file
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
-            return self._clean_dataframe(df)
+            # Read all sheets
+            excel_file = pd.ExcelFile(uploaded_file)
+            all_sheets = {}
+            
+            for sheet_name in excel_file.sheet_names:
+                df = pd.read_excel(uploaded_file, sheet_name=sheet_name, engine='openpyxl')
+                all_sheets[sheet_name] = self._clean_dataframe(df)
+            
+            # If only one sheet, return it directly
+            if len(all_sheets) == 1:
+                return list(all_sheets.values())[0]
+            
+            # Return all sheets for multi-sheet handling
+            return all_sheets
             
         except Exception as e:
             raise Exception(f"Error reading Excel file: {str(e)}")
@@ -156,3 +169,121 @@ class DataProcessor:
                 invalid_count += 1
         
         return valid_marks, invalid_count
+    
+    def consolidate_student_data(self, sheets_data, similarity_threshold=0.8):
+        """
+        Consolidate data from multiple sheets, matching similar student names.
+        
+        Args:
+            sheets_data: Dictionary of sheet_name -> DataFrame
+            similarity_threshold: Minimum similarity score for name matching
+            
+        Returns:
+            dict: Consolidated student data with subjects and total scores
+        """
+        consolidated_data = {}
+        all_students = {}
+        
+        # First pass: collect all unique student names
+        for sheet_name, df in sheets_data.items():
+            if 'student_name' in df.columns or 'name' in df.columns:
+                name_col = 'student_name' if 'student_name' in df.columns else 'name'
+                for name in df[name_col].dropna():
+                    name = str(name).strip()
+                    if name:
+                        all_students[name] = name
+        
+        # Create consolidated student list with name matching
+        consolidated_names = {}
+        used_names = set()
+        
+        for name in all_students.keys():
+            if name in used_names:
+                continue
+                
+            # Find similar names
+            similar_names = [name]
+            for other_name in all_students.keys():
+                if other_name != name and other_name not in used_names:
+                    similarity = self._calculate_name_similarity(name, other_name)
+                    if similarity >= similarity_threshold:
+                        similar_names.append(other_name)
+            
+            # Use the most common/longest name as canonical
+            canonical_name = max(similar_names, key=len)
+            for similar_name in similar_names:
+                consolidated_names[similar_name] = canonical_name
+                used_names.add(similar_name)
+        
+        # Second pass: consolidate data by canonical names
+        student_data = {}
+        
+        for sheet_name, df in sheets_data.items():
+            subject_name = sheet_name.replace('_', ' ').title()
+            
+            if 'student_name' in df.columns or 'name' in df.columns:
+                name_col = 'student_name' if 'student_name' in df.columns else 'name'
+                score_col = None
+                
+                # Find score column
+                for col in df.columns:
+                    if col.lower() in ['marks', 'score', 'grade', 'total', 'points']:
+                        score_col = col
+                        break
+                
+                if score_col:
+                    for _, row in df.iterrows():
+                        original_name = str(row[name_col]).strip()
+                        canonical_name = consolidated_names.get(original_name, original_name)
+                        score = row[score_col]
+                        
+                        if pd.notna(score) and canonical_name:
+                            if canonical_name not in student_data:
+                                student_data[canonical_name] = {}
+                            student_data[canonical_name][subject_name] = float(score)
+        
+        # Calculate total scores
+        for student, subjects in student_data.items():
+            student_data[student]['Total'] = sum(subjects.values())
+        
+        return student_data
+    
+    def _calculate_name_similarity(self, name1, name2):
+        """Calculate similarity between two names."""
+        name1 = name1.lower().strip()
+        name2 = name2.lower().strip()
+        
+        # Direct match
+        if name1 == name2:
+            return 1.0
+        
+        # Check if one is substring of another
+        if name1 in name2 or name2 in name1:
+            return 0.9
+        
+        # Use sequence matcher for overall similarity
+        return SequenceMatcher(None, name1, name2).ratio()
+    
+    def process_multi_sheet_data(self, uploaded_file):
+        """
+        Process multi-sheet Excel file and return consolidated data.
+        
+        Returns:
+            tuple: (consolidated_student_data, sheet_names, raw_sheets_data)
+        """
+        try:
+            sheets_data = self._process_excel(uploaded_file)
+            
+            if isinstance(sheets_data, pd.DataFrame):
+                # Single sheet
+                return None, ['Single Sheet'], {'Single Sheet': sheets_data}
+            
+            # Multi-sheet processing
+            consolidated_data = self.consolidate_student_data(sheets_data)
+            sheet_names = list(sheets_data.keys())
+            
+            return consolidated_data, sheet_names, sheets_data
+            
+        except Exception as e:
+            st.error(f"Error processing multi-sheet data: {str(e)}")
+            return None, [], {}
